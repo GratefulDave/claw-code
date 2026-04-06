@@ -8,6 +8,8 @@ use crate::error::ApiError;
 use crate::types::{MessageRequest, MessageResponse};
 
 pub mod anthropic;
+pub mod antigravity;
+pub mod antigravity_accounts;
 pub mod openai_compat;
 
 #[allow(dead_code)]
@@ -31,6 +33,7 @@ pub trait Provider {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     Anthropic,
+    Antigravity,
     Xai,
     OpenAi,
 }
@@ -133,27 +136,39 @@ pub fn resolve_model_alias(model: &str) -> String {
         .find_map(|(alias, metadata)| {
             (*alias == lower).then_some(match metadata.provider {
                 ProviderKind::Anthropic => match *alias {
-                    "opus" => "claude-opus-4-6",
-                    "sonnet" => "claude-sonnet-4-6",
-                    "haiku" => "claude-haiku-4-5-20251213",
-                    _ => trimmed,
+                    "opus" => std::env::var("ANTHROPIC_DEFAULT_OPUS_MODEL")
+                        .unwrap_or_else(|_| "claude-opus-4-6".to_string()),
+                    "sonnet" => std::env::var("ANTHROPIC_DEFAULT_SONNET_MODEL")
+                        .unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
+                    "haiku" => std::env::var("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+                        .unwrap_or_else(|_| "claude-haiku-4-5-20251213".to_string()),
+                    _ => trimmed.to_string(),
                 },
+                ProviderKind::Antigravity => trimmed.to_string(),
                 ProviderKind::Xai => match *alias {
-                    "grok" | "grok-3" => "grok-3",
-                    "grok-mini" | "grok-3-mini" => "grok-3-mini",
-                    "grok-2" => "grok-2",
-                    _ => trimmed,
+                    "grok" | "grok-3" => "grok-3".to_string(),
+                    "grok-mini" | "grok-3-mini" => "grok-3-mini".to_string(),
+                    "grok-2" => "grok-2".to_string(),
+                    _ => trimmed.to_string(),
                 },
-                ProviderKind::OpenAi => trimmed,
+                ProviderKind::OpenAi => trimmed.to_string(),
             })
         })
-        .map_or_else(|| trimmed.to_string(), ToOwned::to_owned)
+        .unwrap_or_else(|| trimmed.to_string())
 }
 
 #[must_use]
 pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     let canonical = resolve_model_alias(model);
-    if canonical.starts_with("claude") {
+    if canonical.starts_with("antigravity-") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::Antigravity,
+            auth_env: "ANTIGRAVITY_ACCESS_TOKEN",
+            base_url_env: "ANTIGRAVITY_ENDPOINT",
+            default_base_url: antigravity::DEFAULT_BASE_URL,
+        });
+    }
+    if canonical.starts_with("claude") || canonical.starts_with("glm") {
         return Some(ProviderMetadata {
             provider: ProviderKind::Anthropic,
             auth_env: "ANTHROPIC_API_KEY",
@@ -171,11 +186,13 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     }
     None
 }
-
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if let Some(metadata) = metadata_for_model(model) {
         return metadata.provider;
+    }
+    if antigravity::has_access_token() {
+        return ProviderKind::Antigravity;
     }
     if anthropic::has_auth_from_env_or_saved().unwrap_or(false) {
         return ProviderKind::Anthropic;
@@ -207,14 +224,24 @@ pub fn max_tokens_for_model(model: &str) -> u32 {
 #[must_use]
 pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
     let canonical = resolve_model_alias(model);
-    match canonical.as_str() {
-        "claude-opus-4-6" => Some(ModelTokenLimit {
+    // Strip thinking-variant suffix (e.g. ":high") for matching
+    let (base, _variant) = antigravity::parse_model_and_thinking(&canonical);
+    match base.as_str() {
+        "claude-opus-4-6" | "antigravity-claude-opus-4-6-thinking" => Some(ModelTokenLimit {
             max_output_tokens: 32_000,
             context_window_tokens: 200_000,
         }),
-        "claude-sonnet-4-6" | "claude-haiku-4-5-20251213" => Some(ModelTokenLimit {
+        "claude-sonnet-4-6"
+        | "claude-haiku-4-5-20251213"
+        | "antigravity-claude-sonnet-4-6-thinking" => Some(ModelTokenLimit {
             max_output_tokens: 64_000,
             context_window_tokens: 200_000,
+        }),
+        "antigravity-gemini-3.1-pro"
+        | "antigravity-gemini-3-pro"
+        | "antigravity-gemini-3-flash" => Some(ModelTokenLimit {
+            max_output_tokens: 65_000,
+            context_window_tokens: 1_000_000,
         }),
         "grok-3" | "grok-3-mini" => Some(ModelTokenLimit {
             max_output_tokens: 64_000,
@@ -374,5 +401,28 @@ mod tests {
 
         preflight_message_request(&request)
             .expect("models without context metadata should skip the guarded preflight");
+    }
+
+    #[test]
+    fn thinking_models_have_token_limits() {
+        // Opus thinking variants
+        let opus_thinking = model_token_limit("antigravity-claude-opus-4-6-thinking")
+            .expect("opus thinking model should be registered");
+        assert_eq!(opus_thinking.max_output_tokens, 32_000);
+        assert_eq!(opus_thinking.context_window_tokens, 200_000);
+
+        let opus_thinking_high = model_token_limit("antigravity-claude-opus-4-6-thinking:high")
+            .expect("opus thinking:high should be registered");
+        assert_eq!(opus_thinking_high.max_output_tokens, 32_000);
+
+        // Sonnet thinking variants
+        let sonnet_thinking = model_token_limit("antigravity-claude-sonnet-4-6-thinking")
+            .expect("sonnet thinking model should be registered");
+        assert_eq!(sonnet_thinking.max_output_tokens, 64_000);
+        assert_eq!(sonnet_thinking.context_window_tokens, 200_000);
+
+        let sonnet_thinking_low = model_token_limit("antigravity-claude-sonnet-4-6-thinking:low")
+            .expect("sonnet thinking:low should be registered");
+        assert_eq!(sonnet_thinking_low.max_output_tokens, 64_000);
     }
 }

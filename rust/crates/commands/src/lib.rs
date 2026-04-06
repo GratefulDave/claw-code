@@ -87,6 +87,13 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         resume_supported: false,
     },
     SlashCommandSpec {
+        name: "models",
+        aliases: &[],
+        summary: "Search and select a model from the catalog",
+        argument_hint: Some("[search]"),
+        resume_supported: false,
+    },
+    SlashCommandSpec {
         name: "permissions",
         aliases: &[],
         summary: "Show or switch the active permission mode",
@@ -1068,6 +1075,9 @@ pub enum SlashCommand {
     Model {
         model: Option<String>,
     },
+    Models {
+        search: Option<String>,
+    },
     Permissions {
         mode: Option<String>,
     },
@@ -1266,6 +1276,9 @@ pub fn validate_slash_command_input(
         }
         "model" => SlashCommand::Model {
             model: optional_single_arg(command, &args, "[model]")?,
+        },
+        "models" => SlashCommand::Models {
+            search: remainder,
         },
         "permissions" => SlashCommand::Permissions {
             mode: parse_permissions_mode(&args)?,
@@ -1786,7 +1799,7 @@ pub fn resume_supported_slash_commands() -> Vec<&'static SlashCommandSpec> {
 
 fn slash_command_category(name: &str) -> &'static str {
     match name {
-        "help" | "status" | "sandbox" | "model" | "permissions" | "cost" | "resume" | "session"
+        "help" | "status" | "sandbox" | "model" | "models" | "permissions" | "cost" | "resume" | "session"
         | "version" | "login" | "logout" | "usage" | "stats" | "rename" | "privacy-settings" => {
             "Session & visibility"
         }
@@ -1963,6 +1976,7 @@ enum DefinitionSource {
     UserClaw,
     UserCodex,
     UserClaude,
+    Plugin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1970,6 +1984,7 @@ enum DefinitionScope {
     Project,
     UserConfigHome,
     UserHome,
+    Plugin,
 }
 
 impl DefinitionScope {
@@ -1978,6 +1993,7 @@ impl DefinitionScope {
             Self::Project => "Project (.claw)",
             Self::UserConfigHome => "User ($CLAW_CONFIG_HOME)",
             Self::UserHome => "User (~/.claw)",
+            Self::Plugin => "Plugin",
         }
     }
 }
@@ -1990,6 +2006,7 @@ impl DefinitionSource {
             }
             Self::UserClawConfigHome | Self::UserCodexHome => DefinitionScope::UserConfigHome,
             Self::UserClaw | Self::UserCodex | Self::UserClaude => DefinitionScope::UserHome,
+            Self::Plugin => DefinitionScope::Plugin,
         }
     }
 
@@ -2581,7 +2598,57 @@ fn discover_skill_roots(cwd: &Path) -> Vec<SkillRoot> {
         );
     }
 
+    // Discover skills from plugin external directories
+    discover_plugin_skill_roots(&mut roots);
+
     roots
+}
+
+fn discover_plugin_skill_roots(roots: &mut Vec<SkillRoot>) {
+    let mut plugin_dirs: Vec<PathBuf> = Vec::new();
+
+    // Check CLAUDE_PLUGIN_ROOT env var
+    if let Ok(plugin_root) = env::var("CLAUDE_PLUGIN_ROOT") {
+        plugin_dirs.push(PathBuf::from(plugin_root));
+    }
+
+    // Load external directories from settings.json
+    if let Some(home) = env::var_os("HOME") {
+        let settings_path = PathBuf::from(home).join(".claw").join("settings.json");
+        if let Ok(contents) = fs::read_to_string(&settings_path) {
+            if let Ok(settings) = serde_json::from_str::<serde_json::Value>(&contents) {
+                if let Some(dirs) = settings
+                    .get("plugins")
+                    .and_then(|p| p.get("externalDirectories"))
+                    .and_then(|d| d.as_array())
+                {
+                    for dir in dirs {
+                        if let Some(s) = dir.as_str() {
+                            plugin_dirs.push(PathBuf::from(s));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // For each plugin directory, check for .claude-plugin/plugin.json with skills field
+    for plugin_dir in plugin_dirs {
+        let manifest_path = plugin_dir.join(".claude-plugin").join("plugin.json");
+        if let Ok(contents) = fs::read_to_string(&manifest_path) {
+            if let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&contents) {
+                if let Some(skills_rel) = manifest.get("skills").and_then(|s| s.as_str()) {
+                    let skills_path = plugin_dir.join(skills_rel);
+                    push_unique_skill_root(
+                        roots,
+                        DefinitionSource::Plugin,
+                        skills_path,
+                        SkillOrigin::SkillsDir,
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn install_skill(source: &str, cwd: &Path) -> std::io::Result<InstalledSkill> {
@@ -3072,6 +3139,7 @@ fn render_skills_report(skills: &[SkillSummary]) -> String {
         DefinitionScope::Project,
         DefinitionScope::UserConfigHome,
         DefinitionScope::UserHome,
+        DefinitionScope::Plugin,
     ] {
         let group = skills
             .iter()
@@ -3468,6 +3536,7 @@ fn definition_source_id(source: DefinitionSource) -> &'static str {
         DefinitionSource::UserClaw | DefinitionSource::UserCodex | DefinitionSource::UserClaude => {
             "user_claw"
         }
+        DefinitionSource::Plugin => "plugin",
     }
 }
 
@@ -3624,6 +3693,7 @@ pub fn handle_slash_command(
         | SlashCommand::DebugToolCall
         | SlashCommand::Sandbox
         | SlashCommand::Model { .. }
+        | SlashCommand::Models { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Clear { .. }
         | SlashCommand::Cost
@@ -4111,7 +4181,7 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents [list|help]"));
         assert!(help.contains("/skills [list|install <path>|help]"));
-        assert_eq!(slash_command_specs().len(), 141);
+        assert_eq!(slash_command_specs().len(), 142);
         assert!(resume_supported_slash_commands().len() >= 39);
     }
 

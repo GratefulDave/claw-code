@@ -153,6 +153,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => LiveCli::new(model, true, allowed_tools, permission_mode)?
             .run_turn_with_output(&prompt, output_format)?,
         CliAction::Login { output_format } => run_login(output_format)?,
+        CliAction::AntigravityLogin { project_id } => run_antigravity_login(project_id)?,
+        CliAction::AntigravityLogout => run_antigravity_logout()?,
         CliAction::Logout { output_format } => run_logout(output_format)?,
         CliAction::Doctor { output_format } => run_doctor(output_format)?,
         CliAction::Init { output_format } => run_init(output_format)?,
@@ -218,6 +220,8 @@ enum CliAction {
     Login {
         output_format: CliOutputFormat,
     },
+    AntigravityLogin { project_id: Option<String> },
+    AntigravityLogout,
     Logout {
         output_format: CliOutputFormat,
     },
@@ -426,6 +430,12 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "system-prompt" => parse_system_prompt_args(&rest[1..], output_format),
         "login" => Ok(CliAction::Login { output_format }),
         "logout" => Ok(CliAction::Logout { output_format }),
+        "doctor" => Ok(CliAction::Doctor { output_format }),
+        "antigravity-login" => {
+            let project_id = rest.get(1).map(String::clone);
+            Ok(CliAction::AntigravityLogin { project_id })
+        }
+        "antigravity-logout" => Ok(CliAction::AntigravityLogout),
         "init" => Ok(CliAction::Init { output_format }),
         "prompt" => {
             let prompt = rest[1..].join(" ");
@@ -504,6 +514,8 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
             | "system-prompt"
             | "login"
             | "logout"
+            | "antigravity-login"
+            | "antigravity-logout"
             | "init"
             | "prompt"
     ) {
@@ -685,6 +697,68 @@ fn resolve_model_alias(model: &str) -> &str {
         _ => model,
     }
 }
+
+struct ModelEntry {
+    display_name: &'static str,
+    model_id: &'static str,
+    group: &'static str,
+}
+
+const MODEL_CATALOG: &[ModelEntry] = &[
+    // Z.AI Coding Plan
+    ModelEntry { display_name: "opus", model_id: "claude-opus-4-6", group: "Z.AI Coding Plan" },
+    ModelEntry { display_name: "sonnet", model_id: "claude-sonnet-4-6", group: "Z.AI Coding Plan" },
+    ModelEntry { display_name: "haiku", model_id: "claude-haiku-4-5-20251213", group: "Z.AI Coding Plan" },
+    // Antigravity (Google Auth)
+    ModelEntry { display_name: "gemini-3.1-pro:high", model_id: "antigravity-gemini-3.1-pro:high", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3.1-pro:medium", model_id: "antigravity-gemini-3.1-pro:medium", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3.1-pro:low", model_id: "antigravity-gemini-3.1-pro:low", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-pro:high", model_id: "antigravity-gemini-3-pro:high", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-pro:medium", model_id: "antigravity-gemini-3-pro:medium", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-pro:low", model_id: "antigravity-gemini-3-pro:low", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-flash:high", model_id: "antigravity-gemini-3-flash:high", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-flash:medium", model_id: "antigravity-gemini-3-flash:medium", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-flash:low", model_id: "antigravity-gemini-3-flash:low", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "gemini-3-flash:minimal", model_id: "antigravity-gemini-3-flash:minimal", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-opus:high", model_id: "antigravity-claude-opus-4-6-thinking:high", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-opus:medium", model_id: "antigravity-claude-opus-4-6-thinking:medium", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-opus:low", model_id: "antigravity-claude-opus-4-6-thinking:low", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-sonnet:high", model_id: "antigravity-claude-sonnet-4-6-thinking:high", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-sonnet:medium", model_id: "antigravity-claude-sonnet-4-6-thinking:medium", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-sonnet:low", model_id: "antigravity-claude-sonnet-4-6-thinking:low", group: "Antigravity (Google Auth)" },
+    ModelEntry { display_name: "claude-sonnet", model_id: "antigravity-claude-sonnet-4-6", group: "Antigravity (Google Auth)" },
+];
+
+fn filter_models(search: &str) -> Vec<(usize, &ModelEntry)> {
+    let search_lower = search.to_lowercase();
+    MODEL_CATALOG
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                entry.display_name.to_lowercase().contains(&search_lower)
+                    || entry.model_id.to_lowercase().contains(&search_lower)
+                    || entry.group.to_lowercase().contains(&search_lower)
+            })
+            .map(|(i, entry)| (i + 1, entry))
+            .collect()
+}
+
+fn print_model_list(entries: &[(usize, &ModelEntry)]) {
+    let mut current_group = "";
+    let max_num_width = if entries.is_empty() {
+        0
+    } else {
+        format!("{}", entries.last().unwrap().0).len()
+    };
+    for (num, entry) in entries {
+        if entry.group != current_group {
+            current_group = entry.group;
+            println!("\n  {}:", current_group);
+        }
+        println!("{:>width$}. {:<20} {}", num, entry.display_name, entry.model_id, width = max_num_width + 2);
+    }
+}
+
 
 fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSet>, String> {
     if values.is_empty() {
@@ -1419,6 +1493,46 @@ fn run_logout(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+fn run_antigravity_login(project_id: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let project_id = project_id.as_deref().unwrap_or(api::oauth::DEFAULT_PROJECT_ID);
+    let rt = tokio::runtime::Runtime::new()?;
+    let creds = rt.block_on(api::oauth::login(project_id))?;
+
+    // Import into account pool
+    let mut pool = api::load_pool()?;
+    pool.add_account(api::AntigravityAccount {
+        email: creds.email.clone(),
+        access_token: creds.access_token,
+        refresh_token: creds.refresh_token,
+        project_id: creds.project_id.unwrap_or_else(|| project_id.to_string()),
+        enabled: true,
+        added_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        rate_limited_until: None,
+        expires_at: creds.expires_at,
+    });
+    pool.save_pool()?;
+
+    println!("Antigravity login complete.");
+    if let Some(email) = &creds.email {
+        println!("Logged in as: {email}");
+    }
+    Ok(())
+}
+
+fn run_antigravity_logout() -> Result<(), Box<dyn std::error::Error>> {
+    api::oauth::clear_credentials()?;
+    // Also clear account pool
+    let pool_path = api::antigravity_pool_path()?;
+    if pool_path.exists() {
+        std::fs::remove_file(&pool_path)?;
+    }
+    println!("Antigravity credentials and accounts cleared.");
+    Ok(())
+}
+
 fn open_browser(url: &str) -> io::Result<()> {
     let commands = if cfg!(target_os = "macos") {
         vec![("open", vec![url])]
@@ -2098,6 +2212,7 @@ fn run_resume_command(
         | SlashCommand::DebugToolCall { .. }
         | SlashCommand::Resume { .. }
         | SlashCommand::Model { .. }
+        | SlashCommand::Models { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Session { .. }
         | SlashCommand::Plugins { .. }
@@ -2946,6 +3061,7 @@ impl LiveCli {
                 false
             }
             SlashCommand::Model { model } => self.set_model(model)?,
+            SlashCommand::Models { search } => self.handle_models_command(search)?,
             SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
             SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
             SlashCommand::Cost => {
@@ -3139,6 +3255,63 @@ impl LiveCli {
             format_model_switch_report(&previous, &model, message_count)
         );
         Ok(true)
+    }
+
+    fn handle_models_command(
+        &mut self,
+        search: Option<String>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let entries: Vec<(usize, &ModelEntry)> = if let Some(ref query) = search {
+            let query = query.trim();
+            if query.is_empty() {
+                MODEL_CATALOG.iter().enumerate().map(|(i, e)| (i + 1, e)).collect()
+            } else {
+                filter_models(query)
+            }
+        } else {
+            MODEL_CATALOG.iter().enumerate().map(|(i, e)| (i + 1, e)).collect()
+        };
+
+        if entries.is_empty() {
+            println!("No models matched your search.");
+            return Ok(false);
+        }
+
+        print_model_list(&entries);
+
+        let max_num = entries.last().map(|(n, _)| *n).unwrap_or(0);
+        print!("\n  Select model (1-{}) or press Enter to cancel: ", max_num);
+        io::stdout().flush()?;
+
+        let mut selection = String::new();
+        io::stdin().read_line(&mut selection)?;
+        let selection = selection.trim();
+
+        if selection.is_empty() {
+            println!("  Cancelled.");
+            return Ok(false);
+        }
+
+        let num: usize = match selection.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                println!("  Invalid selection: '{}'.", selection);
+                return Ok(false);
+            }
+        };
+
+        let model_id = entries
+            .iter()
+            .find(|(n, _)| *n == num)
+            .map(|(_, entry)| entry.model_id);
+
+        match model_id {
+            Some(id) => self.set_model(Some(id.to_string())),
+            None => {
+                println!("  Selection {} out of range (1-{}).", num, max_num);
+                Ok(false)
+            }
+        }
     }
 
     fn set_permissions(
@@ -5520,6 +5693,8 @@ fn slash_command_completion_candidates_with_sessions(
         "/model opus",
         "/model sonnet",
         "/model haiku",
+        "/models",
+        "/models ",
         "/permissions ",
         "/permissions read-only",
         "/permissions workspace-write",
@@ -6311,6 +6486,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  claw skills")?;
     writeln!(out, "  claw system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
     writeln!(out, "  claw login")?;
+    writeln!(out, "  claw antigravity-login [PROJECT_ID]")?;
+    writeln!(out, "      Login to Antigravity via Google OAuth")?;
+    writeln!(out, "  claw antigravity-logout")?;
+    writeln!(out, "      Clear Antigravity credentials and accounts")?;
     writeln!(out, "  claw logout")?;
     writeln!(out, "  claw init")?;
     writeln!(out)?;
@@ -6839,6 +7018,20 @@ mod tests {
                 args: Some("--help".to_string()),
                 output_format: CliOutputFormat::Text,
             }
+        );
+        // Antigravity login/logout subcommands
+        assert_eq!(
+            parse_args(&["antigravity-login".to_string()]).expect("antigravity-login should parse"),
+            CliAction::AntigravityLogin { project_id: None }
+        );
+        assert_eq!(
+            parse_args(&["antigravity-login".to_string(), "my-project".to_string()])
+                .expect("antigravity-login with project should parse"),
+            CliAction::AntigravityLogin { project_id: Some("my-project".to_string()) }
+        );
+        assert_eq!(
+            parse_args(&["antigravity-logout".to_string()]).expect("antigravity-logout should parse"),
+            CliAction::AntigravityLogout
         );
     }
 

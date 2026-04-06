@@ -1153,7 +1153,7 @@ impl McpStdioProcess {
             .args(&transport.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::null());
         apply_env(&mut command, &transport.env);
 
         let mut child = command.spawn()?;
