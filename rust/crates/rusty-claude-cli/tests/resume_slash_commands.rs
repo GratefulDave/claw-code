@@ -84,10 +84,11 @@ fn resumed_binary_accepts_slash_commands_with_arguments() {
 fn status_command_applies_cli_flags_end_to_end() {
     // given
     let temp_dir = unique_temp_dir("status-command-flags");
-    fs::create_dir_all(&temp_dir).expect("temp dir should exist");
+    let config_home = temp_dir.join("home").join(".claw");
+    fs::create_dir_all(&config_home).expect("config home should exist");
 
     // when
-    let output = run_claw(
+    let output = run_claw_with_env(
         &temp_dir,
         &[
             "--model",
@@ -96,6 +97,7 @@ fn status_command_applies_cli_flags_end_to_end() {
             "read-only",
             "status",
         ],
+        &[("CLAW_CONFIG_HOME", config_home.to_str().expect("utf8 path"))],
     );
 
     // then
@@ -226,7 +228,8 @@ fn resume_latest_restores_the_most_recent_managed_session() {
 fn resumed_status_command_emits_structured_json_when_requested() {
     // given
     let temp_dir = unique_temp_dir("resume-status-json");
-    fs::create_dir_all(&temp_dir).expect("temp dir should exist");
+    let config_home = temp_dir.join("home").join(".claw");
+    fs::create_dir_all(&config_home).expect("config home should exist");
     let session_path = temp_dir.join("session.jsonl");
 
     let mut session = workspace_session(&temp_dir);
@@ -238,7 +241,7 @@ fn resumed_status_command_emits_structured_json_when_requested() {
         .expect("session should persist");
 
     // when
-    let output = run_claw(
+    let output = run_claw_with_env(
         &temp_dir,
         &[
             "--output-format",
@@ -247,6 +250,7 @@ fn resumed_status_command_emits_structured_json_when_requested() {
             session_path.to_str().expect("utf8 path"),
             "/status",
         ],
+        &[("CLAW_CONFIG_HOME", config_home.to_str().expect("utf8 path"))],
     );
 
     // then

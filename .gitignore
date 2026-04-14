@@ -10,3 +10,8 @@ archive/
 .claw/sessions/
 .clawhip/
 status-help.txt
+
+# Local artifacts
+.clawd-todos.json
+.omc/
+rust/.claw/sessions/

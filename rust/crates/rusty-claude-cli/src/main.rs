@@ -9850,14 +9850,35 @@ mod tests {
     fn resolves_model_aliases_in_args() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+        // Use an empty config home so that user-level alias overrides in
+        // ~/.claw/settings.json do not interfere with the built-in alias table.
+        let config_home = std::env::temp_dir().join(format!(
+            "claw-test-cfg-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&config_home).expect("config home should exist");
+        let original_config_home = std::env::var("CLAW_CONFIG_HOME").ok();
+        std::env::set_var("CLAW_CONFIG_HOME", &config_home);
+
         let args = vec![
             "--model".to_string(),
             "opus".to_string(),
             "explain".to_string(),
             "this".to_string(),
         ];
+        let result = parse_args(&args).expect("args should parse");
+
+        match original_config_home {
+            Some(value) => std::env::set_var("CLAW_CONFIG_HOME", value),
+            None => std::env::remove_var("CLAW_CONFIG_HOME"),
+        }
+        std::fs::remove_dir_all(&config_home).ok();
+
         assert_eq!(
-            parse_args(&args).expect("args should parse"),
+            result,
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
                 model: "claude-opus-4-6".to_string(),

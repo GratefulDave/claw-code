@@ -12,11 +12,13 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 fn status_command_applies_model_and_permission_mode_flags() {
     // given
     let temp_dir = unique_temp_dir("status-flags");
-    fs::create_dir_all(&temp_dir).expect("temp dir should exist");
+    let config_home = temp_dir.join("home").join(".claw");
+    fs::create_dir_all(&config_home).expect("config home should exist");
 
     // when
     let output = Command::new(env!("CARGO_BIN_EXE_claw"))
         .current_dir(&temp_dir)
+        .env("CLAW_CONFIG_HOME", &config_home)
         .args([
             "--model",
             "sonnet",
