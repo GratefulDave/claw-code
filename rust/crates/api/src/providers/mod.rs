@@ -337,8 +337,8 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         // DeepSeek models via direct API
         // Source: https://api-docs.deepseek.com/
         "deepseek-v4-pro" | "deepseek-v4-flash" => Some(ModelTokenLimit {
-            max_output_tokens: 8_192,
-            context_window_tokens: 64_000,
+            max_output_tokens: 384_000,
+            context_window_tokens: 1_000_000,
         }),
         _ => None,
     }

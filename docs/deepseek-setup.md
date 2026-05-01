@@ -42,7 +42,7 @@ Then reload: `source ~/.zshrc`
 | `deepseek-v4-pro` | `deepseek-v4-pro` | Coding, reasoning |
 | `deepseek-v4-flash` | `deepseek-v4-flash` | Fast, cost-efficient |
 
-Context window: 64K tokens. Max output: 8,192 tokens.
+Context window: 1M tokens. Max output: 384K tokens.
 
 ## Usage
 
