@@ -39,6 +39,9 @@ impl ProviderClient {
                     Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
                         OpenAiCompatConfig::dashscope()
                     }
+                    Some(meta) if meta.auth_env == "DEEPSEEK_API_KEY" => {
+                        OpenAiCompatConfig::deepseek()
+                    }
                     _ => OpenAiCompatConfig::openai(),
                 };
                 Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
