@@ -10,6 +10,7 @@ Welcome to the Claw Code documentation. Claw Code is the public Rust implementat
 | [CLI Reference](./cli-reference.md) | All flags, commands, slash commands, and env vars |
 | [Configuration](./configuration.md) | Config file hierarchy, settings format, and auth |
 | [API Routing](./api-routing.md) | Provider matrix, model aliases, and routing rules |
+| [DeepSeek Setup](./deepseek-setup.md) | Configure and use the DeepSeek provider (local patch) |
 | [Plugin System](./plugins.md) | Hooks, custom tools, and plugin lifecycle |
 | [Built-in Tools](./tools.md) | Complete reference for all 40+ built-in tools |
 | [Sessions](./sessions.md) | Session persistence, resume, and workspace tracking |
