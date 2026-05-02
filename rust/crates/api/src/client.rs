@@ -25,33 +25,10 @@ impl ProviderClient {
         let resolved_model = providers::resolve_model_alias(model);
         match providers::detect_provider_kind(&resolved_model) {
             ProviderKind::Anthropic => {
-                // DeepSeek models route through ProviderKind::Anthropic because
-                // DeepSeek offers an Anthropic-compatible endpoint, but they
-                // need DEEPSEEK_API_KEY and a different base URL.
-                let meta = providers::metadata_for_model(&resolved_model);
-                if let Some(meta) = meta.filter(|m| m.auth_env == "DEEPSEEK_API_KEY") {
-                    let api_key = std::env::var(meta.auth_env)
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .or_else(|| providers::dotenv_value(meta.auth_env))
-                        .ok_or_else(|| {
-                            ApiError::missing_credentials("DeepSeek", &["DEEPSEEK_API_KEY"])
-                        })?;
-                    let base_url = std::env::var(meta.base_url_env)
-                        .ok()
-                        .filter(|v| !v.is_empty())
-                        .or_else(|| providers::dotenv_value(meta.base_url_env))
-                        .unwrap_or_else(|| meta.default_base_url.to_string());
-                    Ok(Self::Anthropic(
-                        AnthropicClient::from_auth(AuthSource::ApiKey(api_key))
-                            .with_base_url(base_url),
-                    ))
-                } else {
-                    Ok(Self::Anthropic(match anthropic_auth {
-                        Some(auth) => AnthropicClient::from_auth(auth),
-                        None => AnthropicClient::from_env()?,
-                    }))
-                }
+                Ok(Self::Anthropic(match anthropic_auth {
+                    Some(auth) => AnthropicClient::from_auth(auth),
+                    None => AnthropicClient::from_env()?,
+                }))
             }
             ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::xai(),
@@ -63,6 +40,9 @@ impl ProviderClient {
                 let config = match providers::metadata_for_model(&resolved_model) {
                     Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
                         OpenAiCompatConfig::dashscope()
+                    }
+                    Some(meta) if meta.auth_env == "DEEPSEEK_API_KEY" => {
+                        OpenAiCompatConfig::deepseek()
                     }
                     _ => OpenAiCompatConfig::openai(),
                 };
@@ -230,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn deepseek_model_uses_anthropic_client_not_openai() {
+    fn deepseek_model_uses_openai_compat_client() {
         let _lock = env_lock();
         let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("test-deepseek-key"));
         let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
@@ -245,8 +225,14 @@ mod tests {
         );
 
         match client.unwrap() {
-            ProviderClient::Anthropic(_) => {}
-            other => panic!("Expected ProviderClient::Anthropic for deepseek-v4-pro, got: {other:?}"),
+            ProviderClient::OpenAi(openai_client) => {
+                assert!(
+                    openai_client.base_url().contains("api.deepseek.com"),
+                    "deepseek-v4-pro should route to DeepSeek base URL, got: {}",
+                    openai_client.base_url()
+                );
+            }
+            other => panic!("Expected ProviderClient::OpenAi for deepseek-v4-pro, got: {other:?}"),
         }
     }
 
