@@ -10,6 +10,11 @@ use crate::types::{MessageRequest, MessageResponse};
 pub mod anthropic;
 pub mod openai_compat;
 
+/// `DeepSeek`'s Anthropic-compatible API endpoint. Uses the same wire format as
+/// Anthropic (thinking blocks, `tool_use`, streaming SSE) so we route through
+/// `AnthropicClient` with this base URL instead of the OpenAI-compat path.
+pub const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/anthropic";
+
 #[allow(dead_code)]
 pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ApiError>> + Send + 'a>>;
 
@@ -134,28 +139,28 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     (
         "deepseek",
         ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Anthropic,
             auth_env: "DEEPSEEK_API_KEY",
             base_url_env: "DEEPSEEK_BASE_URL",
-            default_base_url: openai_compat::DEFAULT_DEEPSEEK_BASE_URL,
+            default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
         },
     ),
     (
         "deepseek-v4-pro",
         ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Anthropic,
             auth_env: "DEEPSEEK_API_KEY",
             base_url_env: "DEEPSEEK_BASE_URL",
-            default_base_url: openai_compat::DEFAULT_DEEPSEEK_BASE_URL,
+            default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
         },
     ),
     (
         "deepseek-v4-flash",
         ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Anthropic,
             auth_env: "DEEPSEEK_API_KEY",
             base_url_env: "DEEPSEEK_BASE_URL",
-            default_base_url: openai_compat::DEFAULT_DEEPSEEK_BASE_URL,
+            default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
         },
     ),
 ];
@@ -172,6 +177,8 @@ pub fn resolve_model_alias(model: &str) -> String {
                     "opus" => "claude-opus-4-6",
                     "sonnet" => "claude-sonnet-4-6",
                     "haiku" => "claude-haiku-4-5-20251213",
+                    "deepseek" | "deepseek-v4-pro" => "deepseek-v4-pro",
+                    "deepseek-v4-flash" => "deepseek-v4-flash",
                     _ => trimmed,
                 },
                 ProviderKind::Xai => match *alias {
@@ -182,8 +189,6 @@ pub fn resolve_model_alias(model: &str) -> String {
                 },
                 ProviderKind::OpenAi => match *alias {
                     "kimi" => "kimi-k2.5",
-                    "deepseek" | "deepseek-v4-pro" => "deepseek-v4-pro",
-                    "deepseek-v4-flash" => "deepseek-v4-flash",
                     _ => trimmed,
                 },
             })
@@ -245,14 +250,14 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_DASHSCOPE_BASE_URL,
         });
     }
-    // DeepSeek direct API. Routes deepseek/* and deepseek-* model names
-    // to api.deepseek.com/v1 using DEEPSEEK_API_KEY.
+    // DeepSeek Anthropic-compatible API. Routes deepseek/* and deepseek-*
+    // model names to api.deepseek.com/anthropic using DEEPSEEK_API_KEY.
     if canonical.starts_with("deepseek/") || canonical.starts_with("deepseek-") {
         return Some(ProviderMetadata {
-            provider: ProviderKind::OpenAi,
+            provider: ProviderKind::Anthropic,
             auth_env: "DEEPSEEK_API_KEY",
             base_url_env: "DEEPSEEK_BASE_URL",
-            default_base_url: openai_compat::DEFAULT_DEEPSEEK_BASE_URL,
+            default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
         });
     }
     None
@@ -953,6 +958,7 @@ NO_EQUALS_LINE
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
         let _xai = EnvVarGuard::set("XAI_API_KEY", None);
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
 
         // when
         let hint = anthropic_missing_credentials_hint();
@@ -1079,6 +1085,7 @@ NO_EQUALS_LINE
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
         let _xai = EnvVarGuard::set("XAI_API_KEY", None);
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
 
         // when
         let error = anthropic_missing_credentials();
@@ -1156,6 +1163,7 @@ NO_EQUALS_LINE
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some(""));
         let _xai = EnvVarGuard::set("XAI_API_KEY", None);
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
 
         // when
         let hint = anthropic_missing_credentials_hint();
